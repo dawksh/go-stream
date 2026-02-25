@@ -198,7 +198,15 @@ func (m *TorrentManager) GetFileReader(id string) (torrent.Reader, *torrent.File
 
 	file := mt.Torrent.Files()[selectedIdx]
 	reader := file.NewReader()
-	reader.SetReadahead(5 * 1024 * 1024) // 5MB
+
+	// Scale readahead with file size: 16MB base, up to 64MB for large files
+	readahead := int64(16 * 1024 * 1024)
+	if file.Length() > 2*1024*1024*1024 { // >2GB
+		readahead = 64 * 1024 * 1024
+	} else if file.Length() > 500*1024*1024 { // >500MB
+		readahead = 32 * 1024 * 1024
+	}
+	reader.SetReadahead(readahead)
 	reader.SetResponsive()
 
 	return reader, file, nil
