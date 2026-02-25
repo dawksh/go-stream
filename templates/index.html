@@ -1,0 +1,257 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Torrent Stream</title>
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    background: #0f0f0f; color: #e0e0e0;
+    display: flex; justify-content: center;
+    min-height: 100vh; padding: 2rem 1rem;
+  }
+  .container { max-width: 900px; width: 100%; }
+  h1 { font-size: 1.5rem; margin-bottom: 1.5rem; color: #fff; }
+
+  .input-group { display: flex; gap: 0.5rem; margin-bottom: 1.5rem; }
+  input[type="text"] {
+    flex: 1; padding: 0.6rem 0.8rem; border-radius: 6px;
+    border: 1px solid #333; background: #1a1a1a; color: #fff;
+    font-size: 0.9rem; outline: none;
+  }
+  input[type="text"]:focus { border-color: #555; }
+  button {
+    padding: 0.6rem 1.2rem; border-radius: 6px; border: none;
+    background: #2563eb; color: #fff; font-size: 0.9rem;
+    cursor: pointer; white-space: nowrap;
+  }
+  button:hover { background: #1d4ed8; }
+  button:disabled { opacity: 0.5; cursor: not-allowed; }
+
+  .status { padding: 0.8rem; margin-bottom: 1rem; border-radius: 6px; font-size: 0.85rem; display: none; }
+  .status.error { display: block; background: #3b1111; color: #f87171; border: 1px solid #7f1d1d; }
+  .status.loading { display: block; background: #1a1a2e; color: #93c5fd; border: 1px solid #1e3a5f; }
+
+  .torrent-name { font-size: 1.1rem; font-weight: 600; margin-bottom: 0.75rem; color: #fff; display: none; }
+
+  table { width: 100%; border-collapse: collapse; margin-bottom: 1.5rem; display: none; }
+  th { text-align: left; padding: 0.5rem; border-bottom: 2px solid #333; font-size: 0.8rem; color: #888; text-transform: uppercase; }
+  td { padding: 0.5rem; border-bottom: 1px solid #1f1f1f; font-size: 0.85rem; }
+  tr:hover { background: #1a1a1a; }
+  .size { white-space: nowrap; color: #888; }
+  .play-btn { padding: 0.3rem 0.8rem; font-size: 0.8rem; background: #16a34a; }
+  .play-btn:hover { background: #15803d; }
+
+  .player-section { display: none; margin-bottom: 1.5rem; }
+  video { width: 100%; border-radius: 8px; background: #000; max-height: 70vh; }
+
+  .sub-upload { display: none; margin-top: 0.75rem; }
+  .sub-upload label {
+    display: inline-block; padding: 0.4rem 0.8rem; border-radius: 6px;
+    background: #333; color: #ccc; cursor: pointer; font-size: 0.8rem;
+  }
+  .sub-upload label:hover { background: #444; }
+  .sub-upload input[type="file"] { display: none; }
+  .sub-list { margin-top: 0.5rem; font-size: 0.8rem; color: #888; }
+</style>
+</head>
+<body>
+<div class="container">
+  <h1>Torrent Stream</h1>
+
+  <div class="input-group">
+    <input type="text" id="magnetInput" placeholder="Paste magnet link here..." />
+    <button id="addBtn" onclick="addMagnet()">Add</button>
+  </div>
+
+  <div id="status" class="status"></div>
+  <div id="torrentName" class="torrent-name"></div>
+
+  <table id="fileTable">
+    <thead><tr><th>File</th><th>Size</th><th></th></tr></thead>
+    <tbody id="fileBody"></tbody>
+  </table>
+
+  <div id="playerSection" class="player-section">
+    <video id="videoPlayer" controls crossorigin="anonymous"></video>
+    <div class="sub-upload" id="subUpload">
+      <label>Upload Subtitle <input type="file" accept=".srt,.vtt,.ass,.sub" onchange="uploadSubtitle(this.files[0])" /></label>
+      <div class="sub-list" id="subList"></div>
+    </div>
+  </div>
+</div>
+
+<script>
+let currentTorrentId = null;
+
+function showStatus(msg, type) {
+  const el = document.getElementById('status');
+  el.textContent = msg;
+  el.className = 'status ' + type;
+}
+
+function hideStatus() {
+  document.getElementById('status').className = 'status';
+}
+
+function formatSize(bytes) {
+  if (bytes === 0) return '0 B';
+  const k = 1024, sizes = ['B', 'KB', 'MB', 'GB', 'TB'];
+  const i = Math.floor(Math.log(bytes) / Math.log(k));
+  return (bytes / Math.pow(k, i)).toFixed(1) + ' ' + sizes[i];
+}
+
+async function addMagnet() {
+  const input = document.getElementById('magnetInput');
+  const magnet = input.value.trim();
+  if (!magnet) return;
+
+  const btn = document.getElementById('addBtn');
+  btn.disabled = true;
+  showStatus('Fetching torrent metadata... this may take a moment.', 'loading');
+
+  try {
+    const resp = await fetch('/api/magnet', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({magnet})
+    });
+    const json = await resp.json();
+    if (!json.ok) {
+      showStatus(json.error, 'error');
+      return;
+    }
+    hideStatus();
+    renderTorrent(json.data);
+  } catch (e) {
+    showStatus('Network error: ' + e.message, 'error');
+  } finally {
+    btn.disabled = false;
+  }
+}
+
+function renderTorrent(data) {
+  currentTorrentId = data.id;
+
+  document.getElementById('torrentName').textContent = data.name;
+  document.getElementById('torrentName').style.display = 'block';
+
+  const tbody = document.getElementById('fileBody');
+  tbody.innerHTML = '';
+  data.files.forEach(f => {
+    const tr = document.createElement('tr');
+    const actionCell = f.isVideo
+      ? `<button class="play-btn" onclick="selectFile(${f.index})">Play</button>`
+      : '';
+    tr.innerHTML = `<td>${escapeHtml(f.path)}</td><td class="size">${formatSize(f.length)}</td><td>${actionCell}</td>`;
+    tbody.appendChild(tr);
+  });
+  document.getElementById('fileTable').style.display = 'table';
+}
+
+async function selectFile(fileIndex) {
+  showStatus('Preparing stream...', 'loading');
+  try {
+    const resp = await fetch(`/api/select/${currentTorrentId}`, {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({fileIndex})
+    });
+    const json = await resp.json();
+    if (!json.ok) {
+      showStatus(json.error, 'error');
+      return;
+    }
+    hideStatus();
+    startPlayer(json.data);
+  } catch (e) {
+    showStatus('Network error: ' + e.message, 'error');
+  }
+}
+
+function startPlayer(data) {
+  const section = document.getElementById('playerSection');
+  const video = document.getElementById('videoPlayer');
+
+  // Remove old tracks
+  video.querySelectorAll('track').forEach(t => t.remove());
+
+  video.src = data.streamUrl;
+
+  if (data.subtitles) {
+    data.subtitles.forEach((s, i) => {
+      addTrack(video, s.url, s.name, i === 0);
+    });
+  }
+
+  section.style.display = 'block';
+  document.getElementById('subUpload').style.display = 'block';
+  updateSubList(data.subtitles || []);
+  video.play().catch(() => {});
+}
+
+function addTrack(video, url, label, isDefault) {
+  const track = document.createElement('track');
+  track.kind = 'subtitles';
+  track.label = label;
+  track.src = url;
+  track.srclang = 'en';
+  if (isDefault) track.default = true;
+  video.appendChild(track);
+}
+
+function updateSubList(subs) {
+  const el = document.getElementById('subList');
+  if (subs.length === 0) {
+    el.textContent = 'No subtitles loaded.';
+  } else {
+    el.textContent = 'Subtitles: ' + subs.map(s => s.name).join(', ');
+  }
+}
+
+async function uploadSubtitle(file) {
+  if (!file || !currentTorrentId) return;
+
+  const form = new FormData();
+  form.append('subtitle', file);
+
+  try {
+    const resp = await fetch(`/api/subtitle/${currentTorrentId}`, {
+      method: 'POST',
+      body: form
+    });
+    const json = await resp.json();
+    if (!json.ok) {
+      showStatus(json.error, 'error');
+      return;
+    }
+
+    const video = document.getElementById('videoPlayer');
+    addTrack(video, json.data.url, json.data.name, false);
+
+    const subList = document.getElementById('subList');
+    const current = subList.textContent;
+    if (current.startsWith('No subtitles')) {
+      subList.textContent = 'Subtitles: ' + json.data.name;
+    } else {
+      subList.textContent = current + ', ' + json.data.name;
+    }
+  } catch (e) {
+    showStatus('Upload failed: ' + e.message, 'error');
+  }
+}
+
+function escapeHtml(s) {
+  const d = document.createElement('div');
+  d.textContent = s;
+  return d.innerHTML;
+}
+
+document.getElementById('magnetInput').addEventListener('keydown', e => {
+  if (e.key === 'Enter') addMagnet();
+});
+</script>
+</body>
+</html>
