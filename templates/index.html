@@ -4,6 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Torrent Stream</title>
+<link rel="stylesheet" href="https://cdn.plyr.io/3.7.8/plyr.css" />
 <style>
   *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
   body {
@@ -12,7 +13,7 @@
     display: flex; justify-content: center;
     min-height: 100vh; padding: 2rem 1rem;
   }
-  .container { max-width: 900px; width: 100%; }
+  .container { max-width: 960px; width: 100%; }
   h1 { font-size: 1.5rem; margin-bottom: 1.5rem; color: #fff; }
 
   .input-group { display: flex; gap: 0.5rem; margin-bottom: 1.5rem; }
@@ -38,23 +39,25 @@
 
   table { width: 100%; border-collapse: collapse; margin-bottom: 1.5rem; display: none; }
   th { text-align: left; padding: 0.5rem; border-bottom: 2px solid #333; font-size: 0.8rem; color: #888; text-transform: uppercase; }
-  td { padding: 0.5rem; border-bottom: 1px solid #1f1f1f; font-size: 0.85rem; }
+  td { padding: 0.5rem; border-bottom: 1px solid #1f1f1f; font-size: 0.85rem; word-break: break-all; }
   tr:hover { background: #1a1a1a; }
-  .size { white-space: nowrap; color: #888; }
+  .size { white-space: nowrap; color: #888; word-break: normal; }
   .play-btn { padding: 0.3rem 0.8rem; font-size: 0.8rem; background: #16a34a; }
   .play-btn:hover { background: #15803d; }
 
   .player-section { display: none; margin-bottom: 1.5rem; }
-  video { width: 100%; border-radius: 8px; background: #000; max-height: 70vh; }
+  .player-section .plyr { --plyr-color-main: #2563eb; border-radius: 8px; overflow: hidden; }
 
-  .sub-upload { display: none; margin-top: 0.75rem; }
-  .sub-upload label {
-    display: inline-block; padding: 0.4rem 0.8rem; border-radius: 6px;
-    background: #333; color: #ccc; cursor: pointer; font-size: 0.8rem;
+  .player-controls { display: flex; align-items: center; gap: 0.75rem; margin-top: 0.75rem; flex-wrap: wrap; }
+  .player-controls label {
+    display: inline-flex; align-items: center; gap: 0.4rem;
+    padding: 0.4rem 0.8rem; border-radius: 6px;
+    background: #1e1e1e; border: 1px solid #333; color: #ccc;
+    cursor: pointer; font-size: 0.8rem; transition: border-color 0.15s;
   }
-  .sub-upload label:hover { background: #444; }
-  .sub-upload input[type="file"] { display: none; }
-  .sub-list { margin-top: 0.5rem; font-size: 0.8rem; color: #888; }
+  .player-controls label:hover { border-color: #555; }
+  .player-controls input[type="file"] { display: none; }
+  .sub-list { font-size: 0.8rem; color: #888; }
 </style>
 </head>
 <body>
@@ -75,16 +78,31 @@
   </table>
 
   <div id="playerSection" class="player-section">
-    <video id="videoPlayer" controls crossorigin="anonymous"></video>
-    <div class="sub-upload" id="subUpload">
+    <video id="videoPlayer" crossorigin="anonymous" playsinline></video>
+    <div class="player-controls" id="playerControls" style="display:none;">
       <label>Upload Subtitle <input type="file" accept=".srt,.vtt,.ass,.sub" onchange="uploadSubtitle(this.files[0])" /></label>
-      <div class="sub-list" id="subList"></div>
+      <span class="sub-list" id="subList"></span>
     </div>
   </div>
 </div>
 
+<script src="https://cdn.plyr.io/3.7.8/plyr.polyfilled.js"></script>
 <script>
 let currentTorrentId = null;
+let player = null;
+
+function initPlayer() {
+  if (player) return;
+  player = new Plyr('#videoPlayer', {
+    controls: ['play-large', 'play', 'progress', 'current-time', 'duration',
+               'mute', 'volume', 'captions', 'settings', 'pip', 'fullscreen'],
+    settings: ['captions', 'quality', 'speed'],
+    captions: { active: true, update: true },
+    keyboard: { focused: true, global: true },
+    tooltips: { controls: true, seek: true },
+    speed: { selected: 1, options: [0.5, 0.75, 1, 1.25, 1.5, 2] },
+  });
+}
 
 function showStatus(msg, type) {
   const el = document.getElementById('status');
@@ -187,14 +205,18 @@ function startPlayer(data) {
   }
 
   section.style.display = 'block';
-  document.getElementById('subUpload').style.display = 'block';
+  document.getElementById('playerControls').style.display = 'flex';
   updateSubList(data.subtitles || []);
-  video.play().catch(() => {});
+
+  initPlayer();
+  // Plyr needs a nudge after source change
+  player.media.load();
+  player.play().catch(() => {});
 }
 
 function addTrack(video, url, label, isDefault) {
   const track = document.createElement('track');
-  track.kind = 'subtitles';
+  track.kind = 'captions';
   track.label = label;
   track.src = url;
   track.srclang = 'en';
@@ -207,7 +229,7 @@ function updateSubList(subs) {
   if (subs.length === 0) {
     el.textContent = 'No subtitles loaded.';
   } else {
-    el.textContent = 'Subtitles: ' + subs.map(s => s.name).join(', ');
+    el.textContent = 'Subs: ' + subs.map(s => s.name).join(', ');
   }
 }
 
@@ -234,7 +256,7 @@ async function uploadSubtitle(file) {
     const subList = document.getElementById('subList');
     const current = subList.textContent;
     if (current.startsWith('No subtitles')) {
-      subList.textContent = 'Subtitles: ' + json.data.name;
+      subList.textContent = 'Subs: ' + json.data.name;
     } else {
       subList.textContent = current + ', ' + json.data.name;
     }
