@@ -153,8 +153,12 @@ func (m *TorrentManager) SelectFile(id string, fileIndex int) (*ManagedTorrent, 
 	torrentFiles[fileIndex].SetPriority(torrent.PiecePriorityNormal)
 	mt.SelectedFile = fileIndex
 
-	// Discover subtitles from the torrent
+	// Discover subtitles from the torrent — prefer ones matching the video name
 	mt.Subtitles = nil
+	videoBase := stripExt(filepath.Base(mt.Files[fileIndex].Path))
+	videoDir := filepath.Dir(mt.Files[fileIndex].Path)
+
+	var matched, other []SubtitleInfo
 	for i, fi := range mt.Files {
 		if !fi.IsSubtitle {
 			continue
@@ -172,12 +176,22 @@ func (m *TorrentManager) SelectFile(id string, fileIndex int) (*ManagedTorrent, 
 			content = ConvertSRTtoVTT(content)
 		}
 
-		mt.Subtitles = append(mt.Subtitles, SubtitleInfo{
+		sub := SubtitleInfo{
 			Name:    filepath.Base(fi.Path),
 			Index:   i,
 			Content: content,
-		})
+		}
+
+		// Match if same base name or same directory as the video
+		subBase := stripExt(filepath.Base(fi.Path))
+		subDir := filepath.Dir(fi.Path)
+		if strings.HasPrefix(subBase, videoBase) || subDir == videoDir {
+			matched = append(matched, sub)
+		} else {
+			other = append(other, sub)
+		}
 	}
+	mt.Subtitles = append(matched, other...)
 
 	return mt, nil
 }
@@ -279,4 +293,8 @@ func readTorrentFile(f *torrent.File) ([]byte, error) {
 	reader := f.NewReader()
 	defer reader.Close()
 	return io.ReadAll(reader)
+}
+
+func stripExt(name string) string {
+	return strings.TrimSuffix(name, filepath.Ext(name))
 }
