@@ -371,6 +371,16 @@ func handleDownloadSubtitle(manager *TorrentManager, subClient *OpenSubClient) h
 	}
 }
 
+func handleCleanup(manager *TorrentManager) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if err := manager.RemoveAll(); err != nil {
+			jsonError(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		jsonOK(w, "all torrents and data removed")
+	}
+}
+
 func contentTypeForExt(ext string) string {
 	switch ext {
 	case ".mp4", ".m4v":

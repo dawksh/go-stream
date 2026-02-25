@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"os"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -47,6 +48,7 @@ type TorrentManager struct {
 	mu       sync.RWMutex
 	client   *torrent.Client
 	torrents map[string]*ManagedTorrent
+	dataDir  string
 }
 
 func NewTorrentManager(dataDir string) (*TorrentManager, error) {
@@ -63,6 +65,7 @@ func NewTorrentManager(dataDir string) (*TorrentManager, error) {
 	return &TorrentManager{
 		client:   client,
 		torrents: make(map[string]*ManagedTorrent),
+		dataDir:  dataDir,
 	}, nil
 }
 
@@ -237,6 +240,34 @@ func (m *TorrentManager) RemoveTorrent(id string) {
 	if ok {
 		mt.Torrent.Drop()
 	}
+}
+
+func (m *TorrentManager) RemoveAll() error {
+	m.mu.Lock()
+	ids := make([]string, 0, len(m.torrents))
+	for id := range m.torrents {
+		ids = append(ids, id)
+	}
+	for _, id := range ids {
+		if mt, ok := m.torrents[id]; ok {
+			mt.Torrent.Drop()
+			delete(m.torrents, id)
+		}
+	}
+	m.mu.Unlock()
+
+	// Remove downloaded data on disk
+	entries, err := os.ReadDir(m.dataDir)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil
+		}
+		return fmt.Errorf("read data dir: %w", err)
+	}
+	for _, e := range entries {
+		os.RemoveAll(filepath.Join(m.dataDir, e.Name()))
+	}
+	return nil
 }
 
 func (m *TorrentManager) CleanupLoop(ctx context.Context, maxAge time.Duration) {

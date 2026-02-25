@@ -44,6 +44,7 @@ func main() {
 	mux.HandleFunc("POST /api/subtitle/{torrentId}", handleUploadSubtitle(manager))
 	mux.HandleFunc("GET /api/subtitles/{torrentId}", handleSearchSubtitles(manager, subClient))
 	mux.HandleFunc("POST /api/subtitles/{torrentId}/download", handleDownloadSubtitle(manager, subClient))
+	mux.HandleFunc("POST /api/cleanup", handleCleanup(manager))
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
