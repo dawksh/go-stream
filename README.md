@@ -19,6 +19,16 @@ Open `http://localhost:8080`, paste a magnet link, and play.
 |------|---------|-------------|
 | `-port` | `8080` | HTTP server port |
 | `-data` | `/tmp/go-stream` | Directory for downloaded torrent data |
+| `-osapi` | `""` | OpenSubtitles API key (or set `OPENSUBTITLES_API_KEY` env var) |
+
+### Subtitle Search
+
+Get a free API key from [opensubtitles.com](https://www.opensubtitles.com/consumers) to enable subtitle search. Pass it via flag or env var:
+
+```bash
+export OPENSUBTITLES_API_KEY=your_key_here
+./go-stream
+```
 
 ## Deploy (PM2)
 
@@ -40,6 +50,8 @@ pm2 startup
 | `GET /stream/{torrentId}` | Video stream (supports Range requests) |
 | `GET /subs/{torrentId}/{fileIndex}` | Serve subtitle as VTT |
 | `POST /api/subtitle/{torrentId}` | Upload subtitle file (multipart, max 10MB) |
+| `GET /api/subtitles/{torrentId}` | Search OpenSubtitles (`?query=...&lang=en`) |
+| `POST /api/subtitles/{torrentId}/download` | Download & attach subtitle (`{"fileId":N}`) |
 
 ## Tests
 

@@ -16,7 +16,14 @@ import (
 func main() {
 	port := flag.Int("port", 8080, "HTTP server port")
 	dataDir := flag.String("data", "/tmp/go-stream", "directory for torrent data")
+	osAPIKey := flag.String("osapi", "", "OpenSubtitles API key (or set OPENSUBTITLES_API_KEY env)")
 	flag.Parse()
+
+	// Env var fallback for API key
+	if *osAPIKey == "" {
+		*osAPIKey = os.Getenv("OPENSUBTITLES_API_KEY")
+	}
+	subClient := NewOpenSubClient(*osAPIKey)
 
 	manager, err := NewTorrentManager(*dataDir)
 	if err != nil {
@@ -35,6 +42,8 @@ func main() {
 	mux.HandleFunc("GET /stream/{torrentId}", handleStream(manager))
 	mux.HandleFunc("GET /subs/{torrentId}/{fileIndex}", handleSubtitle(manager))
 	mux.HandleFunc("POST /api/subtitle/{torrentId}", handleUploadSubtitle(manager))
+	mux.HandleFunc("GET /api/subtitles/{torrentId}", handleSearchSubtitles(manager, subClient))
+	mux.HandleFunc("POST /api/subtitles/{torrentId}/download", handleDownloadSubtitle(manager, subClient))
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()

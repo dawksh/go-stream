@@ -269,6 +269,108 @@ func handleUploadSubtitle(manager *TorrentManager) http.HandlerFunc {
 	}
 }
 
+func handleSearchSubtitles(manager *TorrentManager, subClient *OpenSubClient) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		torrentID := r.PathValue("torrentId")
+		if torrentID == "" {
+			jsonError(w, "torrent ID required", http.StatusBadRequest)
+			return
+		}
+
+		mt, ok := manager.GetTorrent(torrentID)
+		if !ok {
+			jsonError(w, "torrent not found", http.StatusNotFound)
+			return
+		}
+
+		query := r.URL.Query().Get("query")
+		if query == "" {
+			// Default to torrent name or selected file name
+			mt.mu.Lock()
+			if mt.SelectedFile >= 0 && mt.SelectedFile < len(mt.Files) {
+				query = stripExt(filepath.Base(mt.Files[mt.SelectedFile].Path))
+			} else {
+				query = mt.Name
+			}
+			mt.mu.Unlock()
+		}
+
+		lang := r.URL.Query().Get("lang")
+		if lang == "" {
+			lang = "en"
+		}
+
+		results, err := subClient.Search(query, lang)
+		if err != nil {
+			jsonError(w, err.Error(), http.StatusBadGateway)
+			return
+		}
+
+		jsonOK(w, results)
+	}
+}
+
+func handleDownloadSubtitle(manager *TorrentManager, subClient *OpenSubClient) http.HandlerFunc {
+	type request struct {
+		FileID int `json:"fileId"`
+	}
+
+	return func(w http.ResponseWriter, r *http.Request) {
+		torrentID := r.PathValue("torrentId")
+		if torrentID == "" {
+			jsonError(w, "torrent ID required", http.StatusBadRequest)
+			return
+		}
+
+		mt, ok := manager.GetTorrent(torrentID)
+		if !ok {
+			jsonError(w, "torrent not found", http.StatusNotFound)
+			return
+		}
+
+		var req request
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			jsonError(w, "invalid request body", http.StatusBadRequest)
+			return
+		}
+		if req.FileID == 0 {
+			jsonError(w, "fileId is required", http.StatusBadRequest)
+			return
+		}
+
+		content, fileName, err := subClient.Download(req.FileID)
+		if err != nil {
+			jsonError(w, err.Error(), http.StatusBadGateway)
+			return
+		}
+
+		// Convert SRT to VTT if needed
+		ext := strings.ToLower(filepath.Ext(fileName))
+		if ext == ".srt" {
+			content = ConvertSRTtoVTT(content)
+			fileName = strings.TrimSuffix(fileName, filepath.Ext(fileName)) + ".vtt"
+		}
+
+		mt.mu.Lock()
+		uploadIndex := -(len(mt.Subtitles) + 1)
+		mt.Subtitles = append(mt.Subtitles, SubtitleInfo{
+			Name:    fileName,
+			Index:   uploadIndex,
+			Content: content,
+		})
+		mt.mu.Unlock()
+
+		type response struct {
+			Name string `json:"name"`
+			URL  string `json:"url"`
+		}
+		jsonOK(w, response{
+			Name: fileName,
+			URL:  fmt.Sprintf("/subs/%s/%d", torrentID, uploadIndex),
+		})
+	}
+}
+
 func contentTypeForExt(ext string) string {
 	switch ext {
 	case ".mp4", ".m4v":

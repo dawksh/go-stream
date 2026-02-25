@@ -13,6 +13,7 @@ module.exports = {
       watch: false,
       env: {
         PORT: 8080,
+        OPENSUBTITLES_API_KEY: "",
       },
     },
   ],

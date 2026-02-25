@@ -58,6 +58,25 @@
   .player-controls label:hover { border-color: #555; }
   .player-controls input[type="file"] { display: none; }
   .sub-list { font-size: 0.8rem; color: #888; }
+
+  .sub-search { display: none; margin-top: 1rem; }
+  .sub-search-bar { display: flex; gap: 0.5rem; margin-bottom: 0.75rem; }
+  .sub-search-bar input { flex: 1; padding: 0.4rem 0.6rem; border-radius: 6px; border: 1px solid #333; background: #1a1a1a; color: #fff; font-size: 0.8rem; outline: none; }
+  .sub-search-bar select { padding: 0.4rem; border-radius: 6px; border: 1px solid #333; background: #1a1a1a; color: #fff; font-size: 0.8rem; outline: none; }
+  .sub-search-bar button { padding: 0.4rem 0.8rem; font-size: 0.8rem; }
+  .sub-results { max-height: 240px; overflow-y: auto; border-radius: 6px; }
+  .sub-results:empty { display: none; }
+  .sub-result-item {
+    display: flex; align-items: center; justify-content: space-between; gap: 0.5rem;
+    padding: 0.5rem 0.6rem; border-bottom: 1px solid #1f1f1f; font-size: 0.8rem;
+  }
+  .sub-result-item:hover { background: #1a1a1a; }
+  .sub-result-info { flex: 1; min-width: 0; }
+  .sub-result-name { color: #e0e0e0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .sub-result-meta { color: #666; font-size: 0.7rem; margin-top: 2px; }
+  .sub-dl-btn { padding: 0.25rem 0.6rem; font-size: 0.75rem; background: #7c3aed; flex-shrink: 0; }
+  .sub-dl-btn:hover { background: #6d28d9; }
+  .sub-dl-btn:disabled { opacity: 0.5; }
 </style>
 </head>
 <body>
@@ -81,7 +100,31 @@
     <video id="videoPlayer" crossorigin="anonymous" playsinline></video>
     <div class="player-controls" id="playerControls" style="display:none;">
       <label>Upload Subtitle <input type="file" accept=".srt,.vtt,.ass,.sub" onchange="uploadSubtitle(this.files[0])" /></label>
+      <button onclick="toggleSubSearch()" style="font-size:0.8rem; background:#7c3aed;">Search Subtitles</button>
       <span class="sub-list" id="subList"></span>
+    </div>
+    <div class="sub-search" id="subSearch">
+      <div class="sub-search-bar">
+        <input type="text" id="subQuery" placeholder="Search query (auto-filled from file name)" />
+        <select id="subLang">
+          <option value="en">English</option>
+          <option value="es">Spanish</option>
+          <option value="fr">French</option>
+          <option value="de">German</option>
+          <option value="pt-br">Portuguese (BR)</option>
+          <option value="it">Italian</option>
+          <option value="nl">Dutch</option>
+          <option value="pl">Polish</option>
+          <option value="ru">Russian</option>
+          <option value="zh-cn">Chinese</option>
+          <option value="ja">Japanese</option>
+          <option value="ko">Korean</option>
+          <option value="ar">Arabic</option>
+          <option value="hi">Hindi</option>
+        </select>
+        <button id="subSearchBtn" onclick="searchSubtitles()">Search</button>
+      </div>
+      <div class="sub-results" id="subResults"></div>
     </div>
   </div>
 </div>
@@ -262,6 +305,93 @@ async function uploadSubtitle(file) {
     }
   } catch (e) {
     showStatus('Upload failed: ' + e.message, 'error');
+  }
+}
+
+function toggleSubSearch() {
+  const el = document.getElementById('subSearch');
+  el.style.display = el.style.display === 'block' ? 'none' : 'block';
+}
+
+async function searchSubtitles() {
+  if (!currentTorrentId) return;
+
+  const query = document.getElementById('subQuery').value.trim();
+  const lang = document.getElementById('subLang').value;
+  const btn = document.getElementById('subSearchBtn');
+  btn.disabled = true;
+  btn.textContent = 'Searching...';
+
+  try {
+    const params = new URLSearchParams({lang});
+    if (query) params.set('query', query);
+    const resp = await fetch(`/api/subtitles/${currentTorrentId}?${params}`);
+    const json = await resp.json();
+    if (!json.ok) {
+      showStatus(json.error, 'error');
+      return;
+    }
+    renderSubResults(json.data || []);
+  } catch (e) {
+    showStatus('Search failed: ' + e.message, 'error');
+  } finally {
+    btn.disabled = false;
+    btn.textContent = 'Search';
+  }
+}
+
+function renderSubResults(results) {
+  const el = document.getElementById('subResults');
+  if (results.length === 0) {
+    el.innerHTML = '<div style="padding:0.5rem;color:#666;font-size:0.8rem;">No subtitles found.</div>';
+    return;
+  }
+  el.innerHTML = results.map(r => `
+    <div class="sub-result-item">
+      <div class="sub-result-info">
+        <div class="sub-result-name" title="${escapeHtml(r.release || r.fileName)}">${escapeHtml(r.release || r.fileName)}</div>
+        <div class="sub-result-meta">${escapeHtml(r.language)} &middot; ${r.downloads} downloads</div>
+      </div>
+      <button class="sub-dl-btn" onclick="downloadSubtitle(${r.fileId}, this)">Add</button>
+    </div>
+  `).join('');
+}
+
+async function downloadSubtitle(fileId, btn) {
+  if (!currentTorrentId) return;
+  btn.disabled = true;
+  btn.textContent = 'Adding...';
+
+  try {
+    const resp = await fetch(`/api/subtitles/${currentTorrentId}/download`, {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({fileId})
+    });
+    const json = await resp.json();
+    if (!json.ok) {
+      showStatus(json.error, 'error');
+      btn.disabled = false;
+      btn.textContent = 'Add';
+      return;
+    }
+
+    const video = document.getElementById('videoPlayer');
+    addTrack(video, json.data.url, json.data.name, false);
+
+    const subList = document.getElementById('subList');
+    const current = subList.textContent;
+    if (current.startsWith('No subtitles') || current === '') {
+      subList.textContent = 'Subs: ' + json.data.name;
+    } else {
+      subList.textContent = current + ', ' + json.data.name;
+    }
+
+    btn.textContent = 'Added';
+  } catch (e) {
+    showStatus('Download failed: ' + e.message, 'error');
+    btn.disabled = false;
+    btn.textContent = 'Add';
   }
 }
 
