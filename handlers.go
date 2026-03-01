@@ -94,6 +94,9 @@ func handleSelectFile(manager *TorrentManager) http.HandlerFunc {
 	type response struct {
 		StreamURL string          `json:"streamUrl"`
 		Subtitles []subtitleEntry `json:"subtitles"`
+		IsImage   bool            `json:"isImage"`
+		FileIndex int             `json:"fileIndex"`
+		FileName  string          `json:"fileName"`
 	}
 
 	return func(w http.ResponseWriter, r *http.Request) {
@@ -127,11 +130,16 @@ func handleSelectFile(manager *TorrentManager) http.HandlerFunc {
 				URL:  fmt.Sprintf("/subs/%s/%d", torrentID, s.Index),
 			})
 		}
+		isImage := mt.Files[req.FileIndex].IsImage
+		fileName := filepath.Base(mt.Files[req.FileIndex].Path)
 		mt.mu.Unlock()
 
 		jsonOK(w, response{
 			StreamURL: "/stream/" + torrentID,
 			Subtitles: subs,
+			IsImage:   isImage,
+			FileIndex: req.FileIndex,
+			FileName:  fileName,
 		})
 	}
 }
@@ -393,6 +401,18 @@ func contentTypeForExt(ext string) string {
 		return "video/x-msvideo"
 	case ".mov":
 		return "video/quicktime"
+	case ".jpg", ".jpeg":
+		return "image/jpeg"
+	case ".png":
+		return "image/png"
+	case ".gif":
+		return "image/gif"
+	case ".webp":
+		return "image/webp"
+	case ".bmp":
+		return "image/bmp"
+	case ".svg":
+		return "image/svg+xml"
 	default:
 		return ""
 	}

@@ -5,6 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Torrent Stream</title>
 <link rel="stylesheet" href="https://cdn.plyr.io/3.7.8/plyr.css" />
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/viewerjs/1.11.7/viewer.min.css" />
 <style>
   *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
   body {
@@ -80,6 +81,16 @@
   .sub-dl-btn { padding: 0.25rem 0.6rem; font-size: 0.75rem; background: #7c3aed; flex-shrink: 0; }
   .sub-dl-btn:hover { background: #6d28d9; }
   .sub-dl-btn:disabled { opacity: 0.5; }
+
+  .view-btn { padding: 0.3rem 0.8rem; font-size: 0.8rem; background: #0891b2; }
+  .view-btn:hover { background: #0e7490; }
+
+  .image-gallery { display: none; margin-bottom: 1.5rem; }
+  .image-gallery ul { list-style: none; display: flex; flex-wrap: wrap; gap: 0.5rem; }
+  .image-gallery li { cursor: pointer; border-radius: 6px; overflow: hidden; border: 2px solid transparent; transition: border-color 0.15s; }
+  .image-gallery li:hover { border-color: #0891b2; }
+  .image-gallery li.active { border-color: #0891b2; }
+  .image-gallery img { display: block; width: 120px; height: 90px; object-fit: cover; background: #1a1a1a; }
 </style>
 </head>
 <body>
@@ -101,6 +112,10 @@
     <thead><tr><th>File</th><th>Size</th><th></th></tr></thead>
     <tbody id="fileBody"></tbody>
   </table>
+
+  <div id="imageGallery" class="image-gallery">
+    <ul id="imageList"></ul>
+  </div>
 
   <div id="playerSection" class="player-section">
     <video id="videoPlayer" crossorigin="anonymous" playsinline></video>
@@ -136,9 +151,12 @@
 </div>
 
 <script src="https://cdn.plyr.io/3.7.8/plyr.polyfilled.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/viewerjs/1.11.7/viewer.min.js"></script>
 <script>
 let currentTorrentId = null;
 let player = null;
+let imageFiles = [];
+let imageViewer = null;
 
 function initPlayer() {
   if (player) return;
@@ -207,11 +225,16 @@ function renderTorrent(data) {
 
   const tbody = document.getElementById('fileBody');
   tbody.innerHTML = '';
+  imageFiles = [];
   data.files.forEach(f => {
     const tr = document.createElement('tr');
-    const actionCell = f.isVideo
-      ? `<button class="play-btn" onclick="selectFile(${f.index})">Play</button>`
-      : '';
+    let actionCell = '';
+    if (f.isVideo) {
+      actionCell = `<button class="play-btn" onclick="selectFile(${f.index})">Play</button>`;
+    } else if (f.isImage) {
+      actionCell = `<button class="view-btn" onclick="selectFile(${f.index})">View</button>`;
+      imageFiles.push(f);
+    }
     tr.innerHTML = `<td>${escapeHtml(f.path)}</td><td class="size">${formatSize(f.length)}</td><td>${actionCell}</td>`;
     tbody.appendChild(tr);
   });
@@ -239,6 +262,14 @@ async function selectFile(fileIndex) {
 }
 
 function startPlayer(data) {
+  if (data.isImage) {
+    showImage(data);
+    return;
+  }
+
+  // Hide image gallery if showing
+  document.getElementById('imageGallery').style.display = 'none';
+
   const section = document.getElementById('playerSection');
   const video = document.getElementById('videoPlayer');
 
@@ -261,6 +292,81 @@ function startPlayer(data) {
   // Plyr needs a nudge after source change
   player.media.load();
   player.play().catch(() => {});
+}
+
+function showImage(data) {
+  // Hide video player if showing
+  document.getElementById('playerSection').style.display = 'none';
+  document.getElementById('playerControls').style.display = 'none';
+  document.getElementById('subSearch').style.display = 'none';
+
+  const gallery = document.getElementById('imageGallery');
+  const list = document.getElementById('imageList');
+
+  // Build thumbnail gallery if not yet done
+  if (list.children.length === 0 && imageFiles.length > 0) {
+    imageFiles.forEach((f, i) => {
+      const li = document.createElement('li');
+      li.dataset.fileIndex = f.index;
+      li.onclick = () => selectFile(f.index);
+      const img = document.createElement('img');
+      img.alt = f.path;
+      img.dataset.idx = i;
+      // Thumbnails start blank, loaded once selected
+      img.src = 'data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7';
+      li.appendChild(img);
+      list.appendChild(li);
+    });
+  }
+
+  // Update the selected image's src from the stream
+  const idx = imageFiles.findIndex(f => f.index === data.fileIndex);
+  if (idx >= 0) {
+    const imgs = list.querySelectorAll('img');
+    imgs[idx].src = data.streamUrl + '?f=' + data.fileIndex;
+
+    // Highlight active thumbnail
+    list.querySelectorAll('li').forEach(li => li.classList.remove('active'));
+    imgs[idx].parentElement.classList.add('active');
+
+    // Destroy old viewer and create new one, then show at the right index
+    if (imageViewer) imageViewer.destroy();
+    imageViewer = new Viewer(list, {
+      inline: false,
+      toolbar: { zoomIn: 1, zoomOut: 1, oneToOne: 1, reset: 1, prev: 1, play: 1, next: 1, rotateLeft: 1, rotateRight: 1, flipHorizontal: 1, flipVertical: 1 },
+      title: [1, (image) => image.alt],
+      navbar: imageFiles.length > 1,
+      initialViewIndex: idx,
+      loop: true,
+      url: 'src',
+      view(e) {
+        // When navigating to a new image in the viewer, select it if not yet loaded
+        const viewIdx = e.detail.index;
+        const f = imageFiles[viewIdx];
+        const img = list.querySelectorAll('img')[viewIdx];
+        if (img && img.src.includes('data:image/gif')) {
+          // Need to select this file to load it
+          fetch(`/api/select/${currentTorrentId}`, {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({fileIndex: f.index})
+          }).then(r => r.json()).then(json => {
+            if (json.ok) {
+              img.src = json.data.streamUrl + '?f=' + json.data.fileIndex;
+              imageViewer.update();
+              imageViewer.view(viewIdx);
+            }
+          });
+        }
+        // Highlight active thumbnail
+        list.querySelectorAll('li').forEach(li => li.classList.remove('active'));
+        list.querySelectorAll('li')[viewIdx]?.classList.add('active');
+      },
+    });
+    imageViewer.show();
+  }
+
+  gallery.style.display = 'block';
 }
 
 function addTrack(video, url, label, isDefault) {
@@ -416,7 +522,11 @@ async function cleanupAll() {
     document.getElementById('playerSection').style.display = 'none';
     document.getElementById('playerControls').style.display = 'none';
     document.getElementById('subSearch').style.display = 'none';
+    document.getElementById('imageGallery').style.display = 'none';
+    document.getElementById('imageList').innerHTML = '';
+    if (imageViewer) { imageViewer.destroy(); imageViewer = null; }
     currentTorrentId = null;
+    imageFiles = [];
     showStatus('All data cleaned.', 'loading');
     setTimeout(hideStatus, 2000);
   } catch (e) {

@@ -17,6 +17,7 @@ import (
 var (
 	videoExtensions    = map[string]bool{".mkv": true, ".mp4": true, ".avi": true, ".webm": true, ".mov": true, ".m4v": true}
 	subtitleExtensions = map[string]bool{".srt": true, ".vtt": true, ".ass": true, ".sub": true}
+	imageExtensions    = map[string]bool{".jpg": true, ".jpeg": true, ".png": true, ".gif": true, ".webp": true, ".bmp": true, ".svg": true}
 )
 
 type FileInfo struct {
@@ -25,6 +26,7 @@ type FileInfo struct {
 	Length     int64  `json:"length"`
 	IsVideo    bool   `json:"isVideo"`
 	IsSubtitle bool   `json:"isSubtitle"`
+	IsImage    bool   `json:"isImage"`
 }
 
 type SubtitleInfo struct {
@@ -153,7 +155,11 @@ func (m *TorrentManager) SelectFile(id string, fileIndex int) (*ManagedTorrent, 
 	for _, f := range torrentFiles {
 		f.SetPriority(torrent.PiecePriorityNone)
 	}
-	torrentFiles[fileIndex].SetPriority(torrent.PiecePriorityNormal)
+	if mt.Files[fileIndex].IsImage {
+		torrentFiles[fileIndex].SetPriority(torrent.PiecePriorityNow)
+	} else {
+		torrentFiles[fileIndex].SetPriority(torrent.PiecePriorityNormal)
+	}
 	mt.SelectedFile = fileIndex
 
 	// Discover subtitles from the torrent — prefer ones matching the video name
@@ -315,6 +321,7 @@ func classifyFiles(t *torrent.Torrent) []FileInfo {
 			Length:     f.Length(),
 			IsVideo:    videoExtensions[ext],
 			IsSubtitle: subtitleExtensions[ext],
+			IsImage:    imageExtensions[ext],
 		})
 	}
 	return files
