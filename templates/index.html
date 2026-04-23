@@ -292,6 +292,12 @@ function startPlayer(data) {
   // Plyr needs a nudge after source change
   player.media.load();
   player.play().catch(() => {});
+
+  if (data.compatMode) {
+    const reason = data.compatReason ? `: ${data.compatReason}` : '';
+    showStatus(`Using compatibility stream${reason}. Seeking may be limited while transcoding.`, 'loading');
+    setTimeout(hideStatus, 3000);
+  }
 }
 
 function showImage(data) {
@@ -323,7 +329,7 @@ function showImage(data) {
   const idx = imageFiles.findIndex(f => f.index === data.fileIndex);
   if (idx >= 0) {
     const imgs = list.querySelectorAll('img');
-    imgs[idx].src = data.streamUrl + '?f=' + data.fileIndex;
+    imgs[idx].src = data.streamUrl;
 
     // Highlight active thumbnail
     list.querySelectorAll('li').forEach(li => li.classList.remove('active'));
@@ -352,7 +358,7 @@ function showImage(data) {
             body: JSON.stringify({fileIndex: f.index})
           }).then(r => r.json()).then(json => {
             if (json.ok) {
-              img.src = json.data.streamUrl + '?f=' + json.data.fileIndex;
+              img.src = json.data.streamUrl;
               imageViewer.update();
               imageViewer.view(viewIdx);
             }

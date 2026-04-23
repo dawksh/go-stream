@@ -40,6 +40,7 @@ func main() {
 	mux.HandleFunc("POST /api/magnet", handleAddMagnet(manager))
 	mux.HandleFunc("POST /api/select/{torrentId}", handleSelectFile(manager))
 	mux.HandleFunc("GET /stream/{torrentId}", handleStream(manager))
+	mux.HandleFunc("GET /transcode/{torrentId}", handleTranscode(manager))
 	mux.HandleFunc("GET /subs/{torrentId}/{fileIndex}", handleSubtitle(manager))
 	mux.HandleFunc("POST /api/subtitle/{torrentId}", handleUploadSubtitle(manager))
 	mux.HandleFunc("GET /api/subtitles/{torrentId}", handleSearchSubtitles(manager, subClient))

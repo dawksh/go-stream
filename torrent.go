@@ -41,6 +41,7 @@ type ManagedTorrent struct {
 	ID           string
 	Name         string
 	Files        []FileInfo
+	MediaProbes  map[int]MediaProbe
 	SelectedFile int
 	Subtitles    []SubtitleInfo
 	LastAccessed time.Time
@@ -51,6 +52,8 @@ type TorrentManager struct {
 	client   *torrent.Client
 	torrents map[string]*ManagedTorrent
 	dataDir  string
+	ffmpeg   string
+	ffprobe  string
 }
 
 func NewTorrentManager(dataDir string) (*TorrentManager, error) {
@@ -68,6 +71,8 @@ func NewTorrentManager(dataDir string) (*TorrentManager, error) {
 		client:   client,
 		torrents: make(map[string]*ManagedTorrent),
 		dataDir:  dataDir,
+		ffmpeg:   lookupExecutable("ffmpeg"),
+		ffprobe:  lookupExecutable("ffprobe"),
 	}, nil
 }
 
@@ -108,6 +113,7 @@ func (m *TorrentManager) AddMagnet(ctx context.Context, uri string) (*ManagedTor
 		ID:           id,
 		Name:         t.Name(),
 		Files:        files,
+		MediaProbes:  make(map[int]MediaProbe),
 		SelectedFile: -1,
 		LastAccessed: time.Now(),
 	}
@@ -205,7 +211,7 @@ func (m *TorrentManager) SelectFile(id string, fileIndex int) (*ManagedTorrent, 
 	return mt, nil
 }
 
-func (m *TorrentManager) GetFileReader(id string) (torrent.Reader, *torrent.File, error) {
+func (m *TorrentManager) GetFileReader(id string, fileIndex int) (torrent.Reader, *torrent.File, error) {
 	mt, ok := m.GetTorrent(id)
 	if !ok {
 		return nil, nil, fmt.Errorf("torrent not found")
@@ -215,11 +221,18 @@ func (m *TorrentManager) GetFileReader(id string) (torrent.Reader, *torrent.File
 	selectedIdx := mt.SelectedFile
 	mt.mu.Unlock()
 
-	if selectedIdx < 0 {
-		return nil, nil, fmt.Errorf("no file selected")
+	if fileIndex < 0 {
+		fileIndex = selectedIdx
 	}
 
-	file := mt.Torrent.Files()[selectedIdx]
+	if fileIndex < 0 {
+		return nil, nil, fmt.Errorf("no file selected")
+	}
+	if fileIndex >= len(mt.Files) {
+		return nil, nil, fmt.Errorf("file index out of range")
+	}
+
+	file := mt.Torrent.Files()[fileIndex]
 	reader := file.NewReader()
 
 	// Scale readahead with file size: 16MB base, up to 64MB for large files

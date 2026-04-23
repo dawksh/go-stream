@@ -92,11 +92,13 @@ func handleSelectFile(manager *TorrentManager) http.HandlerFunc {
 		URL  string `json:"url"`
 	}
 	type response struct {
-		StreamURL string          `json:"streamUrl"`
-		Subtitles []subtitleEntry `json:"subtitles"`
-		IsImage   bool            `json:"isImage"`
-		FileIndex int             `json:"fileIndex"`
-		FileName  string          `json:"fileName"`
+		StreamURL    string          `json:"streamUrl"`
+		Subtitles    []subtitleEntry `json:"subtitles"`
+		IsImage      bool            `json:"isImage"`
+		FileIndex    int             `json:"fileIndex"`
+		FileName     string          `json:"fileName"`
+		CompatMode   bool            `json:"compatMode"`
+		CompatReason string          `json:"compatReason,omitempty"`
 	}
 
 	return func(w http.ResponseWriter, r *http.Request) {
@@ -131,15 +133,28 @@ func handleSelectFile(manager *TorrentManager) http.HandlerFunc {
 			})
 		}
 		isImage := mt.Files[req.FileIndex].IsImage
+		isVideo := mt.Files[req.FileIndex].IsVideo
 		fileName := filepath.Base(mt.Files[req.FileIndex].Path)
 		mt.mu.Unlock()
 
+		playback := PlaybackPlan{StreamURL: directStreamURL(torrentID, req.FileIndex)}
+		if isVideo {
+			plan, err := manager.BuildPlaybackPlan(r.Context(), torrentID, req.FileIndex)
+			if err != nil {
+				log.Printf("playback planning failed for %s[%d]: %v", torrentID, req.FileIndex, err)
+			} else {
+				playback = plan
+			}
+		}
+
 		jsonOK(w, response{
-			StreamURL: "/stream/" + torrentID,
-			Subtitles: subs,
-			IsImage:   isImage,
-			FileIndex: req.FileIndex,
-			FileName:  fileName,
+			StreamURL:    playback.StreamURL,
+			Subtitles:    subs,
+			IsImage:      isImage,
+			FileIndex:    req.FileIndex,
+			FileName:     fileName,
+			CompatMode:   playback.CompatMode,
+			CompatReason: playback.Reason,
 		})
 	}
 }
@@ -152,7 +167,17 @@ func handleStream(manager *TorrentManager) http.HandlerFunc {
 			return
 		}
 
-		reader, file, err := manager.GetFileReader(torrentID)
+		fileIndex := -1
+		if rawIndex := r.URL.Query().Get("f"); rawIndex != "" {
+			parsedIndex, err := strconv.Atoi(rawIndex)
+			if err != nil {
+				http.Error(w, "invalid file index", http.StatusBadRequest)
+				return
+			}
+			fileIndex = parsedIndex
+		}
+
+		reader, file, err := manager.GetFileReader(torrentID, fileIndex)
 		if err != nil {
 			if strings.Contains(err.Error(), "not found") {
 				http.Error(w, err.Error(), http.StatusNotFound)
@@ -417,4 +442,3 @@ func contentTypeForExt(ext string) string {
 		return ""
 	}
 }
-

@@ -5,6 +5,7 @@ Self-hosted Go backend that accepts magnet links, fetches torrent metadata, list
 ## Setup
 
 Requires Go 1.22+.
+For compatibility transcoding, install `ffmpeg` and `ffprobe` in `PATH`.
 
 ```bash
 go build -o go-stream .
@@ -47,7 +48,8 @@ pm2 startup
 | `GET /` | Serves the web UI |
 | `POST /api/magnet` | Add a magnet link (`{"magnet":"..."}`) |
 | `POST /api/select/{torrentId}` | Select a file to stream (`{"fileIndex":N}`) |
-| `GET /stream/{torrentId}` | Video stream (supports Range requests) |
+| `GET /stream/{torrentId}?f=N` | Video/image stream for file `N` (supports Range requests; falls back to the selected file if `f` is omitted) |
+| `GET /transcode/{torrentId}?f=N` | Compatibility stream as fragmented MP4 (`H.264 + AAC`); useful when browser audio/video support is flaky |
 | `GET /subs/{torrentId}/{fileIndex}` | Serve subtitle as VTT |
 | `POST /api/subtitle/{torrentId}` | Upload subtitle file (multipart, max 10MB) |
 | `GET /api/subtitles/{torrentId}` | Search OpenSubtitles (`?query=...&lang=en`) |
